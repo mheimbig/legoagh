@@ -342,13 +342,13 @@ run_lego() {
         ;;
 
     digitalocean)
-	    run_lego_digitalocean
-	    ;;
+	run_lego_digitalocean
+	;;
 
     namecheap)
         run_lego_namecheap
         ;;
-
+	
     *)
         error_exit "Unsupported DNS provider ${DNS_PROVIDER}"
         ;;
