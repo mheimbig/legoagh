@@ -29,12 +29,22 @@ set -e -f -u
 #
 # GODADDY_API_KEY				API key.
 # GODADDY_API_SECRET			API secret.
+#
+# Namecheap
+# If you're using Namecheap, you must specify the API user and key. The API
+# key can be created here: https://ap.www.namecheap.com/settings/tools/apiaccess/
+# Namecheap has account requirements to qualify for API access:
+# https://www.namecheap.com/support/knowledgebase/article.aspx/9739/63/api-faq/#c
+#
+# NAMECHEAP_API_USER			API key.
+# NAMECHEAP_API_KEY		      	API secret.
 
 # Function error_exit is an echo wrapper that writes to stderr and stops the
 # script execution with code 1.
 error_exit() {
     echo "$1" 1>&2
-
+    logger -s  "$1"
+    cleanup_lego
     exit 1
 }
 
@@ -43,6 +53,7 @@ error_exit() {
 log() {
     if [ "$verbose" -gt '0' ]; then
         echo "$1" 1>&2
+        logger -s  "$1"
     fi
 }
 
@@ -59,7 +70,7 @@ check_env() {
         error_exit "EMAIL must be specified"
     fi
 
-    if [ "${DNS_PROVIDER}" != 'godaddy' ] && [ "${DNS_PROVIDER}" != 'cloudflare' ] && [ "${DNS_PROVIDER}" != 'digitalocean' ]; then
+    if [ "${DNS_PROVIDER}" != 'godaddy' ] && [ "${DNS_PROVIDER}" != 'cloudflare' ] && [ "${DNS_PROVIDER}" != 'digitalocean' ] && [ "${DNS_PROVIDER}" != 'namecheap' ]; then
         error_exit "DNS provider ${DNS_PROVIDER} is not supported"
     fi
 
@@ -82,6 +93,16 @@ check_env() {
     if [ "${DNS_PROVIDER}" = 'digitalocean' ]; then
         if [ -z "${DO_AUTH_TOKEN+x}" ]; then
             error_exit "DO_AUTH_TOKEN must be specified"
+        fi
+    fi
+    
+    if [ "${DNS_PROVIDER}" = 'namecheap' ]; then
+        if [ -z "${NAMECHEAP_API_KEY+x}" ]; then
+            error_exit "NAMECHEAP_API_KEY must be specified"
+        fi
+
+        if [ -z "${NAMECHEAP_API_USER+x}" ]; then
+            error_exit "NAMECHEAP_API_USER must be specified"
         fi
     fi
 }
@@ -274,6 +295,37 @@ run_lego_digitalocean() {
     fi
 }
 
+run_lego_namecheap() {
+    if [ "${SERVER:-}" != "" ] &&
+        [ "${EAB_KID:-}" != "" ] &&
+        [ "${EAB_HMAC:-}" != "" ]; then
+        NAMECHEAP_API_USER="${NAMECHEAP_API_USER}" \
+        NAMECHEAP_API_KEY="${NAMECHEAP_API_KEY}" \
+            ./lego \
+            --accept-tos \
+            --server "${SERVER:-}" \
+            --eab --kid "${EAB_KID:-}" --hmac "${EAB_HMAC:-}" \
+            --dns namecheap \
+            --domains "${wildcardDomainName}" \
+            --domains "${domainName}" \
+            --email "${email}" \
+            --cert.timeout 600 \
+            run
+    else
+        NAMECHEAP_API_USER="${NAMECHEAP_API_USER}" \
+        NAMECHEAP_API_KEY="${NAMECHEAP_API_KEY}" \
+            ./lego \
+            --accept-tos \
+            --dns namecheap \
+            --domains "${wildcardDomainName}" \
+            --domains "${domainName}" \
+            --email "${email}" \
+            --cert.timeout 600 \
+            run \
+            --preferred-chain="ISRG Root X1"
+    fi
+}
+
 run_lego() {
     domainName="${DOMAIN_NAME}"
     wildcardDomainName="*.${DOMAIN_NAME}"
@@ -290,8 +342,12 @@ run_lego() {
         ;;
 
     digitalocean)
-	run_lego_digitalocean
-	;;
+	    run_lego_digitalocean
+	    ;;
+
+    namecheap)
+        run_lego_namecheap
+        ;;
 
     *)
         error_exit "Unsupported DNS provider ${DNS_PROVIDER}"
@@ -312,6 +368,14 @@ copy_certificate() {
     log "$(get_abs_filename ${certFileName}.crt)"
     log "$(get_abs_filename ${certFileName}.key)"
 }
+
+cleanup_lego() {
+    rm lego.tar.gz
+    rm ./lego
+    rm -r ./.lego
+    log "Lego binary, tar.gz, and data folders removed."
+}
+
 
 # Entrypoint
 
@@ -334,3 +398,5 @@ download_lego
 run_lego
 
 copy_certificate
+
+cleanup_lego
